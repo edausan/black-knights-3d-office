@@ -649,8 +649,11 @@ function createCharacterSprite(agent) {
   const config = CHARACTER_SPRITES[agent.id] || CHARACTER_SPRITES.default;
   const material = new THREE.SpriteMaterial({ transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.12, 1.48, 1);
-  sprite.position.set(0, 0.88, 0.19);
+  // Keep map sprites at character scale instead of letting them dominate desks.
+  // Anchoring at the feet makes them read as occupants of the 3D floor.
+  sprite.scale.set(0.76, 1.03, 1);
+  sprite.center.set(0.5, 0);
+  sprite.position.set(0, 0.03, 0.16);
   sprite.renderOrder = 2;
 
   let cached = spriteTextureCache.get(config.src);
