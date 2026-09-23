@@ -634,6 +634,68 @@ let clock, selectedAgent = null;
 let lastMeetingUpdate = 0;
 let liveConfig = { mode: 'live', enable_sse: true };
 
+// Supplied Code Geass map sprites. Named characters use their own sheets;
+// the remaining Knight roles share the provided Black Knights NPC sheet.
+const CHARACTER_SPRITES = {
+  cc: { src: '/sprites/cc.png', crop: [0, 0, 24, 34] },
+  diethard: { src: '/sprites/diethard.png', crop: [0, 0, 25, 34] },
+  kallen: { src: '/sprites/kallen.png', crop: [0, 0, 25, 35] },
+  nunnally: { src: '/sprites/nunnally.png', crop: [0, 0, 25, 36] },
+  default: { src: '/sprites/black-knights-npcs.png', crop: [0, 0, 25, 33] }
+};
+const spriteTextureCache = new Map();
+
+function createCharacterSprite(agent) {
+  const config = CHARACTER_SPRITES[agent.id] || CHARACTER_SPRITES.default;
+  const material = new THREE.SpriteMaterial({ transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1.12, 1.48, 1);
+  sprite.position.set(0, 0.88, 0.19);
+  sprite.renderOrder = 2;
+
+  let cached = spriteTextureCache.get(config.src);
+  if (cached?.texture) {
+    material.map = cached.texture;
+    material.needsUpdate = true;
+    return sprite;
+  }
+  if (!cached) {
+    cached = { materials: [] };
+    spriteTextureCache.set(config.src, cached);
+    const image = new Image();
+    image.onload = () => {
+      const [x, y, width, height] = config.crop;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      context.imageSmoothingEnabled = false;
+      context.drawImage(image, x, y, width, height, 0, 0, width, height);
+      const pixels = context.getImageData(0, 0, width, height);
+      for (let index = 0; index < pixels.data.length; index += 4) {
+        const red = pixels.data[index];
+        const green = pixels.data[index + 1];
+        const blue = pixels.data[index + 2];
+        // The supplied sprite sheets use a cyan/teal matte.
+        if (red < 30 && green > 75 && blue > 75) pixels.data[index + 3] = 0;
+      }
+      context.putImageData(pixels, 0, 0);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      cached.texture = texture;
+      cached.materials.forEach(waitingMaterial => {
+        waitingMaterial.map = texture;
+        waitingMaterial.needsUpdate = true;
+      });
+      cached.materials = [];
+    };
+    image.src = config.src;
+  }
+  cached.materials.push(material);
+  return sprite;
+}
+
 function applyLiveAgents(newAgents) {
   // The server is authoritative: do not leave demo agents in a live office.
   AGENTS.splice(0, AGENTS.length, ...newAgents);
@@ -1565,6 +1627,9 @@ function createAgents() {
     ring.rotation.x = Math.PI/2;
     ring.position.y = 0.02;
     group.add(ring);
+
+    const characterSprite = createCharacterSprite(agent);
+    group.add(characterSprite);
     
     scene.add(group);
     
@@ -1587,7 +1652,7 @@ function createAgents() {
       group, body, head, hair, neck, shoulders, smile, leftArm, rightArm, leftLeg, rightLeg,
       leftUpperArm, leftLowerArm, rightUpperArm, rightLowerArm,
       leftUpperLeg, leftLowerLeg, rightUpperLeg, rightLowerLeg,
-      ring, agent, label, clickTarget,
+      ring, characterSprite, agent, label, clickTarget,
       walkCycle: 0, time: Math.random() * 100, coffeeMug, onPhone: false,
       activeBubble: null, lastBubble: 0, blinkTimer: 0
     });
