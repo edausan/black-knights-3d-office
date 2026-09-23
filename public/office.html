@@ -154,6 +154,7 @@ body {
   text-transform: uppercase;
   cursor: pointer;
   pointer-events: auto;
+  z-index: 101;
   transition: all 150ms ease;
 }
 .standup-btn:hover { background: rgba(255,255,255,0.14); }
@@ -285,6 +286,33 @@ body {
   visibility: visible;
   transform: translate(-50%, -50%) scale(1);
 }
+#insight-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.95);
+  width: min(520px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 72px));
+  overflow: auto;
+  background: rgba(15, 15, 22, 0.96);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px;
+  padding: 28px;
+  pointer-events: auto;
+  z-index: 200;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 200ms ease;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+#insight-panel.open { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+.insight-title { font-size: 22px; font-weight: 700; }
+.insight-subtitle { margin-top: 5px; color: rgba(255,255,255,0.5); font-size: 12px; }
+.insight-list { display: grid; gap: 10px; margin-top: 22px; }
+.insight-row { padding: 13px 15px; border-radius: 12px; background: rgba(255,255,255,0.05); }
+.insight-row-title { font-size: 13px; font-weight: 700; }
+.insight-row-copy { margin-top: 5px; color: rgba(255,255,255,0.58); font-size: 12px; line-height: 1.4; }
 .detail-header {
   display: flex;
   align-items: center;
@@ -573,6 +601,17 @@ body {
     </div>
   </div>
 
+  <div id="insight-panel">
+    <div class="detail-header">
+      <div class="detail-title">
+        <div class="insight-title" id="insightTitle"></div>
+        <div class="insight-subtitle" id="insightSubtitle"></div>
+      </div>
+      <button class="detail-close" id="insightClose">✕</button>
+    </div>
+    <div class="insight-list" id="insightList"></div>
+  </div>
+
   <div id="toast"></div>
 </div>
 
@@ -792,12 +831,11 @@ function init() {
       autoRotate = !autoRotate; 
       document.getElementById('rotateBtn').classList.toggle('active', autoRotate);
     });
-    document.getElementById('labelsBtn').addEventListener('click', () => {
-      labelsVisible = !labelsVisible;
-      document.getElementById('labelsBtn').classList.toggle('active', labelsVisible);
-      labels.forEach(l => l.visible = labelsVisible);
-    });
+    document.getElementById('labelsBtn').addEventListener('click', toggleLabels);
+    document.querySelector('.standup-btn').addEventListener('click', openTaskBoard);
+    document.querySelector('.chat-btn').addEventListener('click', openChatFeed);
     document.getElementById('detailClose').addEventListener('click', closeDetail);
+    document.getElementById('insightClose').addEventListener('click', closeInsight);
     document.getElementById('userBar').addEventListener('click', (e) => {
       const avatar = e.target.closest('.user-avatar');
       if (avatar) selectAgent(avatar.dataset.agent);
@@ -810,7 +848,15 @@ function init() {
       icon.addEventListener('click', () => {
         document.querySelectorAll('.sidebar-icon').forEach(i => i.classList.remove('active'));
         icon.classList.add('active');
-        showToast(`Switched to ${icon.dataset.view} view`);
+        if (icon.dataset.view === 'office') resetOfficeView();
+        if (icon.dataset.view === 'tasks') openTaskBoard();
+        if (icon.dataset.view === 'metrics') openMetrics();
+        if (icon.dataset.view === 'settings') toggleLabels();
+        if (icon.dataset.view === 'lock') {
+          autoRotate = !autoRotate;
+          document.getElementById('rotateBtn').classList.toggle('active', autoRotate);
+          showToast(autoRotate ? 'Office camera rotation enabled' : 'Office camera rotation paused');
+        }
       });
     });
     
@@ -1643,6 +1689,7 @@ function createAgents() {
     
     const label = createLabel(agent.name, agent.color);
     scene.add(label);
+    labels.push(label);
     
     // Invisible click target
     const clickTarget = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.2, 0.7), new THREE.MeshBasicMaterial({ visible: false }));
@@ -1766,6 +1813,68 @@ function showToast(msg) {
   toast.textContent = msg;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+function openInsight(title, subtitle, rows) {
+  closeDetail();
+  const panel = document.getElementById('insight-panel');
+  document.getElementById('insightTitle').textContent = title;
+  document.getElementById('insightSubtitle').textContent = subtitle;
+  document.getElementById('insightList').innerHTML = rows.map(row => `
+    <div class="insight-row">
+      <div class="insight-row-title" style="color:${esc(row.color || '#fff')}">${esc(row.title)}</div>
+      <div class="insight-row-copy">${esc(row.copy)}</div>
+    </div>
+  `).join('');
+  panel.classList.add('open');
+}
+
+function closeInsight() {
+  document.getElementById('insight-panel').classList.remove('open');
+}
+
+function openTaskBoard() {
+  openInsight('Standup board', 'Live assignments from the Black Knights task feed.', AGENTS.map(agent => ({
+    color: agent.color,
+    title: `${agent.name} · ${(agentStates[agent.id]?.status || 'idle').replace('away', 'blocked')}`,
+    copy: agentStates[agent.id]?.task || agent.task || 'No current assignment'
+  })));
+}
+
+function openMetrics() {
+  const count = status => AGENTS.filter(agent => agentStates[agent.id]?.status === status).length;
+  openInsight('Team metrics', 'Current live-office distribution.', [
+    { title: `${count('working')} working`, copy: 'Knights with active assignments.' },
+    { title: `${count('away')} blocked`, copy: 'Assignments requiring attention or input.' },
+    { title: `${count('idle')} at coffee`, copy: 'Available for the next mission.' }
+  ]);
+}
+
+function openChatFeed() {
+  const handoffs = AGENTS.flatMap(agent => (agent.output || []).slice(0, 1).map(output => ({
+    color: agent.color,
+    title: agent.name,
+    copy: output
+  })));
+  openInsight('Live handoffs', 'Recent observable updates. External chat is not connected.', handoffs);
+}
+
+function toggleLabels() {
+  labelsVisible = !labelsVisible;
+  document.getElementById('labelsBtn').classList.toggle('active', labelsVisible);
+  labels.forEach(label => { label.visible = labelsVisible; });
+  showToast(labelsVisible ? 'Agent labels shown' : 'Agent labels hidden');
+}
+
+function resetOfficeView() {
+  closeDetail();
+  closeInsight();
+  zoom = 1;
+  targetRotation = -Math.PI / 4;
+  autoRotate = false;
+  document.getElementById('rotateBtn').classList.remove('active');
+  updateCamera();
+  showToast('Office view reset');
 }
 
 function selectAgent(agentId) {
