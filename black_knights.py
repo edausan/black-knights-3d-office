@@ -78,7 +78,7 @@ def build_black_knights_agents(roster: dict, tasks: list[dict]) -> list[dict]:
         else:
             current_assignment = {}
             status = "idle"
-            home = f"coffee-{coffee_slot % 3}"
+            home = f"coffee-{coffee_slot % 4}"
             coffee_slot += 1
             task_label = "Coffee break — no assigned task"
 

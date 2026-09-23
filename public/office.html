@@ -672,6 +672,14 @@ let currentRotation = -Math.PI / 4, targetRotation = -Math.PI / 4;
 let clock, selectedAgent = null;
 let lastMeetingUpdate = 0;
 let liveConfig = { mode: 'live', enable_sse: true };
+const BLACK_KNIGHT_POSITIONS = {
+  lelouch: { x: -3, z: -6.5 },
+  tohdoh: { x: 3, z: -6.5 },
+  diethard: { x: -8.9, z: -2.5 },
+  rakshata: { x: 5, z: -2.6 },
+  kallen: { x: 8.9, z: 2 },
+  cc: { x: -2, z: 8.6 }
+};
 
 // Supplied Code Geass map sprites. Named characters use their own sheets;
 // the remaining Knight roles share the provided Black Knights NPC sheet.
@@ -1520,7 +1528,7 @@ function createAgents() {
 
   AGENTS.forEach((agent, i) => {
     const group = new THREE.Group();
-    const startPos = getHomePosition(agent.home);
+    const startPos = getAgentHomePosition(agent);
     group.position.set(startPos.x, 0, startPos.z);
     
     const color = new THREE.Color(agent.color);
@@ -1716,11 +1724,16 @@ function getHomePosition(home) {
     case 'center': return { x: -4, z: 0 };
     case 'right': return { x: 5, z: -1 };
     case 'right2': return { x: 10.5, z: 2 };
-    case 'coffee-0': return { x: -16.2, z: 7.8 };
-    case 'coffee-1': return { x: -14.7, z: 8.2 };
-    case 'coffee-2': return { x: -15.4, z: 6.8 };
+    case 'coffee-0': return { x: -16.4, z: 7.2 };
+    case 'coffee-1': return { x: -15, z: 7.8 };
+    case 'coffee-2': return { x: -14.2, z: 7 };
+    case 'coffee-3': return { x: -15.6, z: 5.9 };
     default: return { x: 0, z: 0 };
   }
+}
+
+function getAgentHomePosition(agent) {
+  return BLACK_KNIGHT_POSITIONS[agent.id] || getHomePosition(agent.home);
 }
 
 function createLabel(text, color) {
