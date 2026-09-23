@@ -15,6 +15,7 @@ Environment variables (see .env.example):
     HOST                  Bind address (default 0.0.0.0)
     HERMES_AGENT_API      URL to Hermes GET /api/agents/status endpoint
     AGENTS_JSON_PATH      Path to agents.json file drop
+    BLACK_KNIGHTS_DASHBOARD_DIR  Existing Black Knights dashboard root to mirror
     POLL_INTERVAL_SECONDS Polling interval for HERMES_AGENT_API
     ENABLE_SSE            Enable Server-Sent Events for live browser updates
 """
@@ -30,12 +31,15 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlparse
 
+from black_knights import load_black_knights_agents
+
 logger = logging.getLogger("hermes-office")
 
 PORT = int(os.environ.get("PORT", "9502"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 HERMES_AGENT_API = os.environ.get("HERMES_AGENT_API", "").strip()
 AGENTS_JSON_PATH = os.environ.get("AGENTS_JSON_PATH", "").strip() or str(Path(__file__).parent / "agents.json")
+BLACK_KNIGHTS_DASHBOARD_DIR = os.environ.get("BLACK_KNIGHTS_DASHBOARD_DIR", "").strip()
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "5"))
 ENABLE_SSE = os.environ.get("ENABLE_SSE", "true").lower() in ("1", "true", "yes")
 DEMO_MODE = not (HERMES_AGENT_API or AGENTS_JSON_PATH)
@@ -190,7 +194,12 @@ def refresh_agents():
     global latest_agents, last_poll
 
     data = None
-    if HERMES_AGENT_API:
+    if BLACK_KNIGHTS_DASHBOARD_DIR:
+        try:
+            data = load_black_knights_agents(BLACK_KNIGHTS_DASHBOARD_DIR)
+        except Exception as error:
+            logger.error("Failed to load Black Knights dashboard: %s", error)
+    if data is None and HERMES_AGENT_API:
         data = _fetch_hermes_agents()
     if data is None:
         data = _read_agents_json()
@@ -265,7 +274,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/config":
             self._send_json({
-                "mode": "hermes_api" if HERMES_AGENT_API else ("json_file" if Path(AGENTS_JSON_PATH).exists() else "demo"),
+                "mode": "black_knights_dashboard" if BLACK_KNIGHTS_DASHBOARD_DIR else ("hermes_api" if HERMES_AGENT_API else ("json_file" if Path(AGENTS_JSON_PATH).exists() else "demo")),
                 "poll_interval_seconds": POLL_INTERVAL,
                 "enable_sse": ENABLE_SSE,
                 "hermes_agent_api": "[REDACTED]" if HERMES_AGENT_API else None,
@@ -356,7 +365,7 @@ def main():
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
     with socketserver.ThreadingTCPServer((HOST, PORT), Handler) as httpd:
-        mode = "DEMO" if DEMO_MODE else ("Hermes API" if HERMES_AGENT_API else "agents.json file")
+        mode = "Black Knights dashboard" if BLACK_KNIGHTS_DASHBOARD_DIR else ("DEMO" if DEMO_MODE else ("Hermes API" if HERMES_AGENT_API else "agents.json file"))
         print(f"Hermes 3D Office running at http://{HOST}:{PORT}", flush=True)
         print(f"Mode: {mode}", flush=True)
         print(f"Agent API: http://{HOST}:{PORT}/api/agents", flush=True)

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%A2%3C/text%3E%3C/svg%3E">
-<title>VirtOffice — Living Office Floor Plan</title>
+  <title>Black Knights — Living 3D Office</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -499,13 +499,13 @@ body {
 
 <div id="ui">
   <div class="header">
-    <div class="title">Hermes Headquarters</div>
+    <div class="title">Black Knights Headquarters</div>
     <div class="user-bar" id="userBar"></div>
   </div>
 
   <div class="notification">
-    <div class="notif-title"><span class="notif-pulse"></span> Gathering in meeting room...</div>
-    <div class="notif-sub" id="meetingSub">4/5 attending — Daily standup</div>
+    <div class="notif-title"><span class="notif-pulse"></span> Live task board</div>
+    <div class="notif-sub" id="meetingSub">Loading current Black Knights assignments…</div>
   </div>
   <button class="standup-btn">Standup Board</button>
 
@@ -592,7 +592,7 @@ const STATUS_LABELS = {
   working: 'working',
   idle: 'idle',
   meeting: 'meeting',
-  away: 'away',
+  away: 'blocked',
   walking: 'walking'
 };
 
@@ -632,17 +632,12 @@ let zoom = 1, autoRotate = false, labelsVisible = true;
 let currentRotation = -Math.PI / 4, targetRotation = -Math.PI / 4;
 let clock, selectedAgent = null;
 let lastMeetingUpdate = 0;
-let liveConfig = { mode: 'demo', enable_sse: true };
+let liveConfig = { mode: 'live', enable_sse: true };
 
 function applyLiveAgents(newAgents) {
-  // Update existing / add new agents
+  // The server is authoritative: do not leave demo agents in a live office.
+  AGENTS.splice(0, AGENTS.length, ...newAgents);
   newAgents.forEach(na => {
-    const existing = AGENTS.find(a => a.id === na.id);
-    if (existing) {
-      Object.assign(existing, na);
-    } else {
-      AGENTS.push(na);
-    }
     const state = agentStates[na.id];
     if (state) {
       state.status = na.status || state.status;
@@ -655,6 +650,7 @@ function applyLiveAgents(newAgents) {
   createAgents();
   setupUI();
   updateStatusBar();
+  updateLiveSummary();
   if (selectedAgent) selectAgent(selectedAgent.id);
   showToast('Live agents synced');
 }
@@ -1508,6 +1504,24 @@ function createAgents() {
     const rightHand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), handMat);
     rightHand.position.y = -0.52;
     rightArm.add(rightHand);
+
+    // Idle Black Knights gather at the real kitchen counter with a drink in hand.
+    let coffeeMug = null;
+    if (String(agent.home || '').startsWith('coffee-')) {
+      coffeeMug = new THREE.Group();
+      const cup = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.07, 0.08, 0.13, 12),
+        new THREE.MeshStandardMaterial({ color: 0xf5ead7, roughness: 0.75 })
+      );
+      const coffeeSurface = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.006, 12),
+        new THREE.MeshBasicMaterial({ color: 0x3b2418 })
+      );
+      coffeeSurface.position.y = 0.068;
+      coffeeMug.add(cup, coffeeSurface);
+      coffeeMug.position.set(0, -0.55, 0.12);
+      rightArm.add(coffeeMug);
+    }
     
     // Legs — upper + lower for knee bend
     const legMat = darkMat.clone();
@@ -1574,7 +1588,7 @@ function createAgents() {
       leftUpperArm, leftLowerArm, rightUpperArm, rightLowerArm,
       leftUpperLeg, leftLowerLeg, rightUpperLeg, rightLowerLeg,
       ring, agent, label, clickTarget,
-      walkCycle: 0, time: Math.random() * 100, coffeeMug: null, onPhone: false,
+      walkCycle: 0, time: Math.random() * 100, coffeeMug, onPhone: false,
       activeBubble: null, lastBubble: 0, blinkTimer: 0
     });
   });
@@ -1587,6 +1601,9 @@ function getHomePosition(home) {
     case 'center': return { x: -4, z: 0 };
     case 'right': return { x: 5, z: -1 };
     case 'right2': return { x: 10.5, z: 2 };
+    case 'coffee-0': return { x: -16.2, z: 7.8 };
+    case 'coffee-1': return { x: -14.7, z: 8.2 };
+    case 'coffee-2': return { x: -15.4, z: 6.8 };
     default: return { x: 0, z: 0 };
   }
 }
@@ -1643,7 +1660,8 @@ function updateStatusBar() {
     working: AGENTS.filter(a => agentStates[a.id].status === 'working').length,
     idle: AGENTS.filter(a => agentStates[a.id].status === 'idle').length,
     meeting: AGENTS.filter(a => agentStates[a.id].status === 'meeting').length,
-    walking: AGENTS.filter(a => agentStates[a.id].status === 'walking').length
+    walking: AGENTS.filter(a => agentStates[a.id].status === 'walking').length,
+    away: AGENTS.filter(a => agentStates[a.id].status === 'away').length
   };
   
   const items = [
@@ -1651,7 +1669,7 @@ function updateStatusBar() {
     { key: 'idle', label: 'idle', color: '#f5b544' },
     { key: 'meeting', label: 'meeting', color: '#8B5CF6' },
     { key: 'walking', label: 'walking', color: '#7DD3FC' },
-    { key: 'away', label: 'away', color: 'rgba(255,255,255,0.3)' },
+    { key: 'away', label: 'blocked', color: '#ff7a7a' },
     { key: 'out', label: 'out', color: 'rgba(255,255,255,0.3)' },
     { key: 'sick', label: 'sick', color: 'rgba(255,255,255,0.3)' }
   ];
@@ -1665,6 +1683,14 @@ function updateStatusBar() {
       </div>
     `;
   }).join('');
+}
+
+function updateLiveSummary() {
+  if (liveConfig.mode === 'demo') return;
+  const working = AGENTS.filter(a => agentStates[a.id].status === 'working').length;
+  const blocked = AGENTS.filter(a => agentStates[a.id].status === 'away').length;
+  const idle = AGENTS.filter(a => agentStates[a.id].status === 'idle').length;
+  document.getElementById('meetingSub').textContent = `${working} working · ${blocked} blocked · ${idle} at coffee`;
 }
 
 function showToast(msg) {
@@ -1738,6 +1764,7 @@ function onMouseMove(e) {
 }
 
 function updateBehavior() {
+  if (liveConfig.mode !== 'demo') return;
   const now = Date.now();
   let meetingCount = 0;
   
@@ -1781,6 +1808,7 @@ function updateBehavior() {
 }
 
 function spawnRandomChat() {
+  if (liveConfig.mode !== 'demo') return;
   // Find agents close together; throttle so bubbles don't stack
   const chatMessages = ['Nice work!', 'LGTM', 'Can you review?', 'On it', 'Coffee?', 'Standup?', 'Synced'];
   const now = Date.now();
@@ -1958,7 +1986,7 @@ function animateAgents(delta) {
       a.shoulders.rotation.x = 0.06;
       
       // Only override status to walking if we're actually en route
-      if (state.status !== 'meeting' && state.status !== 'working' && state.status !== 'idle') {
+      if (state.status !== 'meeting' && state.status !== 'working' && state.status !== 'idle' && state.status !== 'away') {
         state.status = 'walking';
       }
     } else {
@@ -2026,9 +2054,16 @@ function animateAgents(delta) {
         // Idle — head looks around, occasional stretch
         a.head.rotation.y = Math.sin(a.time * 0.4) * 0.2;
         a.head.rotation.x = Math.sin(a.time * 0.3) * 0.05;
+
+        if (a.coffeeMug) {
+          // A relaxed drinking pose at the kitchen counter.
+          a.rightArm.rotation.x = -1.2 + Math.sin(a.time * 0.7) * 0.08;
+          a.rightLowerArm.rotation.x = 0.65;
+          a.rightArm.rotation.z = -0.15;
+        }
         
         // Occasional arm stretch
-        if (Math.sin(a.time * 0.2) > 0.95) {
+        if (!a.coffeeMug && Math.sin(a.time * 0.2) > 0.95) {
           a.rightArm.rotation.x = -0.5;
           a.rightLowerArm.rotation.x = 0.2;
         }
@@ -2062,7 +2097,11 @@ function animate() {
   // Update meeting notification periodically
   if (Date.now() - lastMeetingUpdate > 5000) {
     const meetingCount = AGENTS.filter(a => agentStates[a.id].status === 'meeting').length;
-    document.getElementById('meetingSub').textContent = `${Math.max(meetingCount, 1)}/5 attending — Daily standup`;
+    if (liveConfig.mode === 'demo') {
+      document.getElementById('meetingSub').textContent = `${Math.max(meetingCount, 1)}/5 attending — Daily standup`;
+    } else {
+      updateLiveSummary();
+    }
     updateStatusBar();
     lastMeetingUpdate = Date.now();
   }
